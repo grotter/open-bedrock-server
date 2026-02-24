@@ -567,7 +567,9 @@ class BedrockService(AbstractLLMService):
                     delta_content = chunk_data.get("delta", {}).get("text", "")
                 elif chunk_data["type"] == "message_delta":
                     delta_payload = chunk_data.get("delta", {})
-                    finish_reason = delta_payload.get("stop_reason")
+                    finish_reason = self._map_finish_reason(
+                        delta_payload.get("stop_reason")
+                    )
                 elif chunk_data["type"] == "message_stop":
                     # This might not have content but confirms end of message with metrics
                     # If finish_reason wasn't in message_delta, it might be inferred here or from invocation metrics
@@ -639,7 +641,9 @@ class BedrockService(AbstractLLMService):
                     CoreChatCompletionChoice(
                         index=0,
                         message=Message(role="assistant", content=assistant_content),
-                        finish_reason=response_body.get("stop_reason"),
+                        finish_reason=self._map_finish_reason(
+                            response_body.get("stop_reason")
+                        ),
                     )
                 ],
             )
@@ -787,6 +791,24 @@ class BedrockService(AbstractLLMService):
             raise StreamingError(
                 f"Error during Bedrock Titan stream processing for {model_id}: {str(e)}"
             )
+
+    @staticmethod
+    def _map_finish_reason(provider_reason: str | None) -> str | None:
+        """Maps provider-specific finish/stop reasons to OpenAI-compatible reasons."""
+        if provider_reason is None:
+            return None
+        mapping = {
+            # Claude / Anthropic
+            "end_turn": "stop",
+            "max_tokens": "length",
+            "stop_sequence": "stop",
+            "tool_use": "tool_calls",
+            # Titan
+            "FINISH": "stop",
+            "LENGTH": "length",
+            "CONTENT_FILTERED": "content_filter",
+        }
+        return mapping.get(provider_reason, provider_reason)
 
     async def chat_completion(
         self,
